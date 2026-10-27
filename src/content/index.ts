@@ -5,8 +5,8 @@
 import { extractFromPayload, looksLikeMediaPayload, parseJsonLoose } from "./extract";
 import { isCandidate, scanDom } from "./dom";
 import { MediaOverlay } from "./overlay";
-import { resolveElement } from "./resolve";
-import { MediaStore, selectForPage } from "./store";
+import { isStoryPath, resolveElement } from "./resolve";
+import { MediaStore, SegmentLog, selectForPage } from "./store";
 import {
   PAGE_MESSAGE_SOURCE,
   type BackgroundRequest,
@@ -15,16 +15,17 @@ import {
   type JobStatusSummary,
   type MediaResponse,
 } from "../shared/messages";
-import { isAllowedMediaUrl, shortcodeFromPath } from "../shared/url";
+import { isAllowedMediaUrl, mediaKey, shortcodeFromPath } from "../shared/url";
 import { SETTINGS_KEY, normalizeSettings } from "../storage/settings";
-import type { Settings } from "../shared/types";
+import type { MediaItem, Settings } from "../shared/types";
 
 const store = new MediaStore();
+const segments = new SegmentLog();
 
 const sendToBackground = <T>(request: BackgroundRequest) => chrome.runtime.sendMessage(request) as Promise<T>;
 
 const overlay = new MediaOverlay({
-  resolve: (el) => resolveElement(el, store),
+  resolve: (el) => resolveElement(el, store, document, segments),
   enqueue: (item) => sendToBackground<EnqueueResponse>({ type: "ENQUEUE", items: [item] }),
   status: (jobIds) => sendToBackground<JobStatusSummary[]>({ type: "JOB_STATUS", jobIds }),
 });
@@ -60,9 +61,13 @@ function scanEmbeddedJson(): void {
 
 window.addEventListener("message", (event: MessageEvent) => {
   if (event.source !== window || event.origin !== window.location.origin) return;
-  const data = event.data as { source?: string; type?: string; payload?: unknown } | null;
-  if (!data || data.source !== PAGE_MESSAGE_SOURCE || data.type !== "PAYLOAD") return;
-  store.add(extractFromPayload(data.payload, "network"));
+  const data = event.data as { source?: string; type?: string; payload?: unknown; url?: unknown } | null;
+  if (!data || data.source !== PAGE_MESSAGE_SOURCE) return;
+  if (data.type === "PAYLOAD") {
+    store.add(extractFromPayload(data.payload, "network"));
+  } else if (data.type === "SEGMENT" && typeof data.url === "string" && isAllowedMediaUrl(data.url)) {
+    segments.add(mediaKey(data.url));
+  }
 });
 
 // Itens de carrossel só entram no DOM quando o usuário navega por eles, então
@@ -94,6 +99,12 @@ function start(): void {
     if (event.target instanceof HTMLImageElement) scheduleDomScan();
   }, true);
   document.addEventListener("loadedmetadata", scheduleDomScan, true);
+  // Janelas e slides que só mudam de classe/estilo ao abrir não geram novos nós:
+  // varre de novo após interações e, com a aba visível, de tempos em tempos.
+  for (const type of ["click", "keydown"]) document.addEventListener(type, scheduleDomScan, { capture: true, passive: true });
+  window.setInterval(() => {
+    if (document.visibilityState === "visible") scheduleDomScan();
+  }, 2000);
   new MutationObserver(scheduleDomScan).observe(document.documentElement, {
     childList: true,
     subtree: true,
@@ -110,11 +121,18 @@ chrome.runtime.onMessage.addListener((message: ContentRequest, _sender, sendResp
     scanEmbeddedJson();
     store.add(scanDom());
     const pageShortcode = shortcodeFromPath(location.pathname);
-    const response: MediaResponse = {
-      pageUrl: location.href,
-      pageShortcode,
-      items: selectForPage(store.all(), pageShortcode),
-    };
+    let items = selectForPage(store.all(), pageShortcode);
+    if (isStoryPath(location.pathname)) {
+      // Em stories, o que está na tela vem primeiro, já identificado (sem o aviso de streaming).
+      const current = overlayTargets()
+        .map((el) => resolveElement(el, store, document, segments))
+        .filter((item): item is MediaItem => !!item && !item.unavailableReason);
+      if (current.length > 0) {
+        const keys = new Set(current.map((item) => item.key));
+        items = [...current, ...items.filter((item) => !keys.has(item.key) && !item.unavailableReason)];
+      }
+    }
+    const response: MediaResponse = { pageUrl: location.href, pageShortcode, items };
     sendResponse(response);
   } else if (message.type === "CLEAR_MEDIA") {
     store.clear();

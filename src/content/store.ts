@@ -18,6 +18,9 @@ function better(current: MediaItem, incoming: MediaItem): MediaItem {
     shortcode: preferred.shortcode ?? other.shortcode,
     owner: preferred.owner ?? other.owner,
     index: preferred.index ?? other.index,
+    mediaId: preferred.mediaId ?? other.mediaId,
+    duration: preferred.duration ?? other.duration,
+    dashKeys: preferred.dashKeys ?? other.dashKeys,
   };
 }
 
@@ -83,4 +86,25 @@ export function selectForPage(items: MediaItem[], pageShortcode: string | undefi
     return [...selected].sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
   }
   return [...selected].reverse();
+}
+
+/** Últimos pedaços de vídeo baixados pelo player (caminho no CDN + horário). */
+export class SegmentLog {
+  private entries: { key: string; at: number }[] = [];
+
+  constructor(
+    private readonly limit = 60,
+    private readonly now: () => number = Date.now,
+  ) {}
+
+  add(key: string): void {
+    this.entries = this.entries.filter((e) => e.key !== key);
+    this.entries.push({ key, at: this.now() });
+    if (this.entries.length > this.limit) this.entries.shift();
+  }
+
+  /** Caminhos do mais recente para o mais antigo. */
+  recent(): string[] {
+    return this.entries.map((e) => e.key).reverse();
+  }
 }

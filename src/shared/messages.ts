@@ -65,3 +65,10 @@ export interface PagePayloadMessage {
   /** JSON já recebido pela própria página do Instagram. */
   payload: unknown;
 }
+
+/** Pedaço de vídeo/áudio baixado pelo player da página (só o endereço). */
+export interface PageSegmentMessage {
+  source: typeof PAGE_MESSAGE_SOURCE;
+  type: "SEGMENT";
+  url: string;
+}

@@ -21,6 +21,7 @@ const HANDLED_KEYS = new Set([
   "carousel_media",
   "edge_sidecar_to_children",
   "display_resources",
+  "video_dash_manifest",
   "user",
   "owner",
 ]);
@@ -64,6 +65,27 @@ function usernameOf(node: Json): string | undefined {
   return undefined;
 }
 
+/** O id pode vir como pk numérico ou como "pk_idDoDono". */
+function mediaIdOf(node: Json): string | undefined {
+  const pk = node.pk;
+  if (typeof pk === "number" && Number.isFinite(pk)) return String(pk);
+  if (typeof pk === "string" && /^\d+$/.test(pk)) return pk;
+  const id = asString(node.id);
+  const match = id?.match(/^(\d+)(?:_\d+)?$/);
+  return match?.[1];
+}
+
+/** Extrai os caminhos dos arquivos listados no manifesto DASH (<BaseURL>). */
+export function dashKeysOf(manifest: unknown): string[] | undefined {
+  if (typeof manifest !== "string" || !manifest.includes("BaseURL")) return undefined;
+  const keys = new Set<string>();
+  for (const match of manifest.matchAll(/<BaseURL>([^<]+)<\/BaseURL>/g)) {
+    const url = match[1].replace(/&amp;/g, "&").trim();
+    if (isAllowedMediaUrl(url)) keys.add(mediaKey(url));
+  }
+  return keys.size > 0 ? [...keys] : undefined;
+}
+
 /** Lê as mídias de um único nó (post, item de carrossel ou reel). */
 function mediaFromNode(node: Json, ctx: Context, source: MediaSource): MediaItem | undefined {
   const image =
@@ -90,6 +112,9 @@ function mediaFromNode(node: Json, ctx: Context, source: MediaSource): MediaItem
 
   return {
     key: mediaKey(chosen.url),
+    mediaId: mediaIdOf(node),
+    duration: video ? asNumber(node.video_duration) : undefined,
+    dashKeys: video ? dashKeysOf(node.video_dash_manifest) : undefined,
     type: video ? "video" : "image",
     url: chosen.url,
     thumbnailUrl: image?.url ?? (video ? undefined : chosen.url),

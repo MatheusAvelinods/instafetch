@@ -11,7 +11,8 @@ Extensão para Google Chrome (Manifest V3) que identifica, seleciona e baixa ima
 
 - **Identificação de mídias:** imagens e vídeos da página aberta, incluindo todos os itens de carrosséis, sempre na maior resolução disponível, sem duplicatas.
 - **Prévia:** miniaturas com tipo, resolução e tamanho estimado.
-- **Botão na própria página (novo na 1.1):** um botão ⬇ aparece no canto de cada foto ou vídeo do Instagram, no feed, no perfil, em reels e na publicação aberta. Em carrosséis, só o slide visível tem botão, e ele acompanha a troca de slide. Ao passar o mouse, o botão mostra o que será baixado (ex.: “Baixar foto · 1080×1350 · item 2”). Ele baixa sempre a maior resolução conhecida, mesmo quando a tela mostra uma miniatura. Na grade do perfil, a capa de um reel baixa o vídeo. O botão também mostra o progresso, a conclusão ou o erro. Pode ser desligado em Configurações.
+- **Botão na própria página (novo na 1.1):** um botão ⬇ aparece no canto de cada foto ou vídeo do Instagram, no feed, no perfil, em reels e na publicação aberta. Em carrosséis, só o slide visível tem botão, e ele acompanha a troca de slide. Ao passar o mouse, o botão mostra o que será baixado (ex.: “Baixar foto · 1080×1350 · item 2”). Ele baixa sempre a maior resolução conhecida, mesmo quando a tela mostra uma miniatura. Na grade do perfil, a capa de um reel baixa o vídeo. O botão só aparece quando a mídia está realmente visível naquele ponto. Com uma publicação aberta em janela, menus ou outras sobreposições, os posts que ficaram por baixo não mostram botão (1.2). O botão também mostra o progresso, a conclusão ou o erro. Pode ser desligado em Configurações.
+- **Stories e destaques (novo na 1.2):** vídeos de stories e de destaques (stories fixados), que o Instagram transmite em partes, também são baixados pelo botão. A extensão identifica o vídeo que está tocando pela duração, pelo id na URL e pelos pedaços que o player está baixando. Os arquivos são nomeados `perfil_story_<id>_01.mp4`.
 - **Filtro de resolução (novo na 1.1):** *Qualquer*, *≥ 320 px*, *≥ 640 px* ou *≥ 1080 px (HD)*, considerando o maior lado da mídia. Esconde miniaturas e imagens pequenas, informa quantas foram ocultadas e fica salvo para as próximas vezes. “Selecionar todas” respeita o filtro.
 - **Download individual:** botão em cada miniatura do popup.
 - **Download em lote:** selecionar todas, limpar seleção e baixar as selecionadas.
@@ -71,6 +72,8 @@ A detecção combina três fontes, de forma tolerante a mudanças no layout:
 2. **Respostas JSON que o próprio Instagram recebe** enquanto você navega. Um script no contexto da página observa (sem alterar e sem fazer requisições novas) as respostas de `fetch`/`XMLHttpRequest` e repassa ao content script. É daqui que vêm os links diretos de vídeos e todos os itens de carrosséis.
 3. **Elementos `<img>` e `<video>` visíveis**, como reserva caso as fontes anteriores mudem.
 
+Para vídeos transmitidos em partes (stories, destaques, alguns reels), o page-hook também registra apenas o *endereço* dos pedaços de vídeo que o player baixa (sem ler o conteúdo). Comparado com o manifesto DASH de cada vídeo, isso indica qual vídeo está tocando.
+
 As mídias são deduplicadas pelo caminho do arquivo no CDN (o mesmo arquivo aparece em vários tamanhos), mantendo a maior versão. Só são aceitos links HTTPS de `*.cdninstagram.com` e `*.fbcdn.net`.
 
 O service worker mantém a fila com concorrência limitada, usa `chrome.downloads` para salvar, acompanha o progresso e guarda o estado em `chrome.storage.session`, de modo que a fila sobrevive quando o Chrome suspende o worker.
@@ -113,8 +116,7 @@ Para o teste de integração também validar downloads concluídos, aponte o CDN
 - **Carrosséis no feed:** os itens aparecem conforme o Instagram os carrega. Abrir a publicação garante a lista completa.
 - **Links expiram:** os endereços do CDN são assinados e temporários. Recarregue a página antes de repetir downloads antigos.
 - **Conteúdo privado:** a extensão só vê o que sua conta já pode ver; não contorna contas privadas, login ou outras proteções, e não deve ser usada para isso.
-- **Botão sobre vídeos:** quando o vídeo é transmitido em partes e a publicação tem mais de um vídeo sem capa correspondente, o botão avisa que o vídeo está indisponível. Use o popup na página da publicação.
-- **Stories e destaques** não são tratados de forma específica nesta versão.
+- **Vídeos em partes:** se o vídeo começou a tocar antes de a extensão receber os dados dele (por exemplo, numa aba aberta antes da instalação), o botão pede para deixar o vídeo tocar um instante ou recarregar a página.
 
 ## Privacidade
 

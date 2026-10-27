@@ -51,6 +51,57 @@ const HTML = `<!doctype html><html><head><title>Instagram</title>
 <button id="next" onclick="window.slide=(window.slide||0)+1;document.getElementById('track').style.transform='translateX(' + (-400*window.slide) + 'px)'">próximo</button>
 </article></main></body></html>`;
 
+// Perfil com grade de posts e uma publicação aberta em janela (modal) por cima.
+const PROFILE_HTML = `<!doctype html><html><head><title>Instagram</title><style>
+  body { margin: 0; }
+  .grid { display: grid; grid-template-columns: repeat(3, 300px); gap: 4px; padding: 20px; }
+  .grid a { position: relative; display: block; width: 300px; height: 300px; }
+  .grid img { width: 300px; height: 300px; object-fit: cover; display: block; }
+  .grid .cover { position: absolute; inset: 0; }
+  #modal { position: fixed; inset: 0; background: rgb(0 0 0 / 0.65); display: none; place-items: center; }
+  #modal.open { display: grid; }
+  #dialog { width: 700px; height: 520px; background: #fff; display: flex; }
+  #dialog img { width: 420px; height: 520px; object-fit: cover; }
+</style></head><body><main>
+  <div class="grid">
+    <a href="/p/Cg1/"><img alt="" src="${cdn("g1", 320)}"><div class="cover"></div></a>
+    <a href="/p/Cg2/"><img alt="" src="${cdn("g2", 320)}"><div class="cover"></div></a>
+    <a href="/p/Cg3/"><img alt="" src="${cdn("g3", 320)}"><div class="cover"></div></a>
+    <a href="/p/Cg4/"><img alt="" src="${cdn("g4", 320)}"><div class="cover"></div></a>
+    <a href="/p/Cg5/"><img alt="" src="${cdn("g5", 320)}"><div class="cover"></div></a>
+    <a href="/p/Cg6/"><img alt="" src="${cdn("g6", 320)}"><div class="cover"></div></a>
+  </div>
+  <button id="open" onclick="document.getElementById('modal').classList.add('open')">abrir</button>
+</main>
+<div id="modal" role="dialog"><div id="dialog"><article><a href="/p/Cmodal/">p</a><img alt="" src="${cdn("modal", 640)}"></article><div>comentários</div></div></div>
+</body></html>`;
+
+// Destaque (story fixado) com dois vídeos transmitidos em partes.
+const dash = (name) =>
+  `<MPD><Period><AdaptationSet><Representation><BaseURL>https://scontent.cdninstagram.com/v/${name}-video.mp4?x=1&amp;y=2</BaseURL></Representation></AdaptationSet><AdaptationSet><Representation><BaseURL>https://scontent.cdninstagram.com/v/${name}-audio.mp4</BaseURL></Representation></AdaptationSet></Period></MPD>`;
+const storyItem = (pk, duration, name) => ({
+  pk,
+  id: `${pk}_77`,
+  video_duration: duration,
+  video_dash_manifest: dash(name),
+  image_versions2: { candidates: [{ url: cdn(`capa-${name}`, 720), width: 720, height: 1280 }] },
+  video_versions: [{ url: `https://scontent.cdninstagram.com/o1/v/story-${name}.mp4`, width: 720, height: 1280 }],
+});
+const STORY_HTML = `<!doctype html><html><head><title>Instagram</title>
+<script type="application/json">${JSON.stringify({
+  reels_media: [{ id: "highlight:179", user: { username: "perfil_teste" }, items: [storyItem("5001", 15, "s1"), storyItem("5002", 15, "s2")] }],
+})}</script>
+<style>body { margin: 0; background: #111; } section { position: relative; width: 400px; height: 700px; margin: 0 auto; }
+video { width: 400px; height: 700px; display: block; background: #000; }
+header { position: absolute; top: 20px; left: 60px; color: #fff; }</style></head>
+<body><section><video muted></video><header>perfil_teste</header></section>
+<script>
+  // Player em partes: src é um blob e os pedaços vêm do CDN via fetch.
+  document.querySelector("video").src = URL.createObjectURL(new Blob(["x"], { type: "video/mp4" }));
+  fetch("https://scontent.cdninstagram.com/v/s1-video.mp4?bytestart=0&byteend=99");
+  setTimeout(() => fetch("https://scontent.cdninstagram.com/v/s2-video.mp4?bytestart=0&byteend=99"), 200);
+</script></body></html>`;
+
 function assert(cond, msg) {
   if (!cond) throw new Error("FALHOU: " + msg);
   console.log("ok -", msg);
@@ -69,12 +120,15 @@ function assert(cond, msg) {
     ],
   });
   try {
-    await context.route("https://www.instagram.com/**", (route) =>
-      route.fulfill({ status: 200, contentType: "text/html", body: HTML }),
-    );
-    await context.route("https://scontent.cdninstagram.com/**", (route) =>
-      route.fulfill({ status: 200, contentType: "image/png", body: PNG }),
-    );
+    await context.route("https://www.instagram.com/**", (route) => {
+      const { pathname } = new URL(route.request().url());
+      const body = pathname.startsWith("/stories/") ? STORY_HTML : pathname === "/perfil_teste/" ? PROFILE_HTML : HTML;
+      return route.fulfill({ status: 200, contentType: "text/html", body });
+    });
+    await context.route("https://scontent.cdninstagram.com/**", (route) => {
+      const isVideo = route.request().url().includes(".mp4");
+      return route.fulfill({ status: 200, contentType: isVideo ? "video/mp4" : "image/png", body: isVideo ? Buffer.alloc(100) : PNG });
+    });
 
     let [worker] = context.serviceWorkers();
     if (!worker) worker = await context.waitForEvent("serviceworker");
@@ -206,6 +260,68 @@ function assert(cond, msg) {
       assert((await popup.$$("#history-list .row")).length >= 2, "histórico registra os downloads concluídos");
       await popup.screenshot({ path: path.join(process.env.SHOT_DIR || os.tmpdir(), "popup-history.png") });
     }
+
+    // ---------- Publicação aberta sobre a grade do perfil ----------
+    const profile = await context.newPage();
+    await profile.setViewportSize({ width: 1000, height: 760 });
+    await profile.goto("https://www.instagram.com/perfil_teste/");
+    await profile.waitForTimeout(900);
+    const shown = () =>
+      profile.evaluate(() =>
+        [...document.querySelector("instafetch-overlay").shadowRoot.querySelectorAll(".wrap:not([hidden])")].map((w) => w.style.transform),
+      );
+    const gridButtons = await shown();
+    assert(gridButtons.length === 6, `grade do perfil: um botão por post (${gridButtons.length})`);
+    await profile.click("#open");
+    await profile.waitForTimeout(900);
+    const modalButtons = await shown();
+    console.log("   botões com a janela aberta:", modalButtons);
+    assert(modalButtons.length === 1, "com a publicação aberta, só ela tem botão (nada da grade por cima)");
+    const modalBox = await profile.evaluate(() => document.querySelector("#dialog img").getBoundingClientRect().toJSON());
+    const [, bx, by] = modalButtons[0].match(/translate\((-?\d+)px, (-?\d+)px\)/).map(Number);
+    assert(Math.abs(bx - (modalBox.left + 8)) <= 1 && Math.abs(by - (modalBox.top + 8)) <= 1, "botão fica no canto da mídia aberta");
+    await profile.screenshot({ path: path.join(process.env.SHOT_DIR || os.tmpdir(), "page-modal.png") });
+    await profile.close();
+
+    // ---------- Vídeo de destaque (story fixado) em partes ----------
+    const story = await context.newPage();
+    await story.setViewportSize({ width: 900, height: 760 });
+    await story.goto("https://www.instagram.com/stories/highlights/179/");
+    await story.waitForTimeout(1200);
+    const storyWrap = () => story.evaluate(() => {
+      const wrap = document.querySelector("instafetch-overlay").shadowRoot.querySelector(".wrap:not([hidden])");
+      if (!wrap) return null;
+      const r = wrap.querySelector("button").getBoundingClientRect();
+      return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+    });
+    const storyBtn = await storyWrap();
+    assert(storyBtn, "vídeo do destaque tem botão");
+    await story.mouse.move(storyBtn.x, storyBtn.y);
+    await story.waitForTimeout(150);
+    const storyLabel = await story.evaluate(() => document.querySelector("instafetch-overlay").shadowRoot.querySelector(".wrap:not([hidden]) .label").textContent);
+    assert(storyLabel === "Baixar vídeo · 720×1280", `vídeo em partes identificado (${storyLabel})`);
+    await story.mouse.click(storyBtn.x, storyBtn.y);
+    await story.waitForFunction(
+      () => /done|error/.test(document.querySelector("instafetch-overlay").shadowRoot.querySelector(".wrap:not([hidden]) button").dataset.state),
+      null,
+      { timeout: 20000 },
+    );
+    const storyState = await story.evaluate(() => {
+      const wrap = document.querySelector("instafetch-overlay").shadowRoot.querySelector(".wrap:not([hidden])");
+      return `${wrap.querySelector("button").dataset.state} | ${wrap.querySelector(".label").textContent}`;
+    });
+    console.log("   destaque após clique:", storyState);
+    assert(!storyState.includes("transmitido em partes") && !storyState.includes("identificar"), "não mostra mais o erro de vídeo em partes");
+    if (process.env.CDN_MAP) assert(storyState.startsWith("done"), "vídeo do destaque baixado");
+    const storyTabId = await worker.evaluate(async () => (await chrome.tabs.query({ active: true, lastFocusedWindow: true }))[0]?.id);
+    await popup.goto(`chrome-extension://${extensionId}/popup.html?tabId=${storyTabId}`);
+    await popup.waitForSelector(".card");
+    const storyQueue = await worker.evaluate(async () => (await chrome.storage.session.get("jobs")).jobs.map((j) => j.filename));
+    console.log("   fila:", storyQueue.filter((f) => f.includes("story")));
+    assert(storyQueue.some((f) => f === "InstaFetch/perfil_teste_story_5002/perfil_teste_story_5002_01.mp4"), "o vídeo certo (o que está tocando) foi baixado, com nome do story");
+    const firstCard = await popup.$eval(".card", (c) => c.classList.contains("unavailable"));
+    assert(!firstCard, "popup no destaque lista o vídeo atual como disponível");
+    await story.close();
 
     await popup.setViewportSize({ width: 420, height: 580 });
     await popup.click('.tab[data-tab="media"]');

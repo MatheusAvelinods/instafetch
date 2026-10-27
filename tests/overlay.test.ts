@@ -105,3 +105,36 @@ describe("rótulo do botão", () => {
     ).toBe("Baixar foto · 1080×1350 · item 2");
   });
 });
+
+import { hitBelongsToMedia } from "../src/content/overlay";
+
+describe("hitBelongsToMedia (sobreposição)", () => {
+  function layout() {
+    document.body.innerHTML = `
+      <main>
+        <a id="post"><div id="frame"><img id="img"></div><div id="cover"></div></a>
+        <a id="other"><img id="img2"></a>
+      </main>
+      <div id="modal"><div id="dialog"></div></div>`;
+    const rect = (w: number, h: number) => () => ({ width: w, height: h }) as DOMRect;
+    for (const id of ["img", "frame", "cover", "post", "img2", "other"]) {
+      document.getElementById(id)!.getBoundingClientRect = rect(300, 300);
+    }
+    document.querySelector("main")!.getBoundingClientRect = rect(1000, 3000);
+    return (id: string) => document.getElementById(id)!;
+  }
+
+  it("aceita a própria mídia e camadas transparentes do mesmo bloco", () => {
+    const $ = layout();
+    expect(hitBelongsToMedia($("img"), $("img"))).toBe(true);
+    expect(hitBelongsToMedia($("cover"), $("img"))).toBe(true);
+  });
+
+  it("recusa uma janela aberta por cima ou outra publicação", () => {
+    const $ = layout();
+    expect(hitBelongsToMedia($("dialog"), $("img"))).toBe(false);
+    expect(hitBelongsToMedia($("modal"), $("img"))).toBe(false);
+    expect(hitBelongsToMedia($("img2"), $("img"))).toBe(false);
+    expect(hitBelongsToMedia(null, $("img"))).toBe(false);
+  });
+});

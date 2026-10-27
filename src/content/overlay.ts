@@ -35,6 +35,7 @@ const MIN_VISIBLE_SIDE = 64;
 /** Fração mínima visível dentro do recorte (slides vizinhos do carrossel ficam abaixo). */
 const MIN_VISIBLE_FRACTION = 0.55;
 const INSET = 8;
+const BUTTON_SIZE = 34;
 const ANIMATION_WINDOW_MS = 900;
 const POLL_MS = 600;
 const MAX_CLIP_DEPTH = 15;
@@ -160,6 +161,31 @@ export function visibleBox(rect: Box, clipRects: Box[], viewport: Box): Box | nu
   box.bottom = Math.min(box.bottom, viewport.bottom);
   if (box.right - box.left < MIN_VISIBLE_SIDE || box.bottom - box.top < MIN_VISIBLE_SIDE) return null;
   return box;
+}
+
+/** Até quantos níveis acima da mídia procurar o contêiner que ela compartilha com camadas da própria mídia. */
+const MAX_OWNER_DEPTH = 6;
+/** O contêiner comum não pode ser muito maior que a mídia (senão é a página, um modal etc.). */
+const MAX_OWNER_AREA_RATIO = 2.5;
+
+/**
+ * Diz se o elemento no topo de um ponto da tela pertence à mídia: ela mesma,
+ * algo dentro dela, ou uma camada irmã do mesmo bloco (o Instagram cobre fotos
+ * e vídeos com divs transparentes e controles). Uma janela aberta por cima,
+ * o fundo escurecido de um modal ou outro post não passam nesse teste.
+ */
+export function hitBelongsToMedia(hit: Element | null, media: Element): boolean {
+  if (!hit) return false;
+  if (hit === media || media.contains(hit)) return true;
+  const mediaRect = media.getBoundingClientRect();
+  const mediaArea = Math.max(1, mediaRect.width * mediaRect.height);
+  let node = media.parentElement;
+  for (let depth = 0; node && depth < MAX_OWNER_DEPTH; depth++, node = node.parentElement) {
+    const rect = node.getBoundingClientRect();
+    if (rect.width * rect.height > mediaArea * MAX_OWNER_AREA_RATIO) return false;
+    if (node.contains(hit)) return true;
+  }
+  return false;
 }
 
 export class MediaOverlay {
@@ -342,6 +368,23 @@ export class MediaOverlay {
     }
   }
 
+  /**
+   * Confere se a mídia é o que está visível onde o botão ficaria e no centro da
+   * área visível. Evita botões de posts da grade aparecendo por cima de uma
+   * publicação aberta, de menus ou de outras janelas.
+   */
+  private isOnTop(el: Element, box: Box): boolean {
+    const points = [
+      [box.left + INSET + BUTTON_SIZE / 2, box.top + INSET + BUTTON_SIZE / 2],
+      [(box.left + box.right) / 2, (box.top + box.bottom) / 2],
+    ];
+    return points.every(([x, y]) => {
+      // Ignora a própria camada de botões, que fica acima de tudo.
+      const hit = document.elementsFromPoint(x, y).find((node) => node !== this.host) ?? null;
+      return hitBelongsToMedia(hit, el);
+    });
+  }
+
   /** Reposiciona os botões a cada quadro durante rolagens e animações. */
   schedule(): void {
     if (!this.enabled) return;
@@ -377,6 +420,7 @@ export class MediaOverlay {
       }
       const overlaps =
         box && placed.some((p) => Math.abs(p.left - box!.left) < 12 && Math.abs(p.top - box!.top) < 12);
+      if (box && !overlaps && !this.isOnTop(t.el, box)) box = null;
       if (!box || overlaps) {
         t.wrap.hidden = true;
         continue;

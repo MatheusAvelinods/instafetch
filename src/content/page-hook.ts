@@ -4,7 +4,7 @@
  * Não faz requisições novas e não altera as respostas.
  */
 import { looksLikeMediaPayload, parseJsonLoose } from "./extract";
-import { PAGE_MESSAGE_SOURCE, type PagePayloadMessage } from "../shared/messages";
+import { PAGE_MESSAGE_SOURCE, type PagePayloadMessage, type PageSegmentMessage } from "../shared/messages";
 
 const MAX_TEXT = 15 * 1024 * 1024;
 
@@ -20,11 +20,22 @@ function forward(text: string): void {
   }
 }
 
+/**
+ * Vídeos em partes (stories, reels) chegam como pedaços de vídeo/áudio. Só o
+ * endereço é repassado, para saber qual vídeo está tocando; o conteúdo não é lido.
+ */
+function forwardSegment(url: string, contentType: string): void {
+  if (!/^(video|audio)\//.test(contentType) || !url.startsWith("https://")) return;
+  const message: PageSegmentMessage = { source: PAGE_MESSAGE_SOURCE, type: "SEGMENT", url };
+  window.postMessage(message, window.location.origin);
+}
+
 const originalFetch = window.fetch;
 window.fetch = async function (this: unknown, ...args: Parameters<typeof fetch>) {
   const response = await originalFetch.apply(this, args);
   try {
     const type = response.headers.get("content-type") ?? "";
+    forwardSegment(response.url, type);
     if (/json|javascript|text/.test(type)) {
       response
         .clone()
@@ -42,6 +53,7 @@ const originalSend = XMLHttpRequest.prototype.send;
 XMLHttpRequest.prototype.send = function (this: XMLHttpRequest, ...args: Parameters<XMLHttpRequest["send"]>) {
   this.addEventListener("load", () => {
     try {
+      forwardSegment(this.responseURL, this.getResponseHeader("content-type") ?? "");
       if (this.responseType === "" || this.responseType === "text") forward(this.responseText);
       else if (this.responseType === "json" && this.response) forward(JSON.stringify(this.response));
     } catch {

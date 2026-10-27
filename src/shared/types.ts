@@ -17,6 +17,15 @@ export interface MediaItem {
   /** Posição dentro de um carrossel (1-based). */
   index?: number;
   source: MediaSource;
+  /** Id numérico da mídia (pk). Identifica stories, que não têm shortcode. */
+  mediaId?: string;
+  /** Duração do vídeo em segundos, quando informada pelo Instagram. */
+  duration?: number;
+  /**
+   * Caminhos dos arquivos do player em partes (DASH) deste vídeo. Permitem
+   * descobrir qual vídeo está tocando a partir dos pedaços que o player baixa.
+   */
+  dashKeys?: string[];
   /** Preenchido quando a mídia foi identificada, mas não pode ser baixada. */
   unavailableReason?: string;
 }

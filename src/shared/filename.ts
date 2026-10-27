@@ -45,7 +45,12 @@ export function buildFilename(
 ): string {
   const ext = extensionFromUrl(media.url, media.type === "video" ? "mp4" : "jpg");
   const owner = media.owner ? sanitize(media.owner, 30) : undefined;
-  const post = media.shortcode ? sanitize(media.shortcode, 30) : undefined;
+  // Stories não têm shortcode; o id da mídia mantém o nome único e rastreável.
+  const post = media.shortcode
+    ? sanitize(media.shortcode, 30)
+    : media.mediaId
+      ? `story_${sanitize(media.mediaId, 30)}`
+      : undefined;
 
   const base =
     [owner, post].filter(Boolean).join("_") || `instagram_${timestamp(options.now ?? new Date())}`;
