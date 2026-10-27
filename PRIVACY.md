@@ -14,7 +14,7 @@ O InstaFetch funciona **inteiramente no seu navegador**.
 | `downloads` | Salvar os arquivos, acompanhar o progresso, cancelar e mostrar o arquivo na pasta. |
 | `storage` | Guardar preferências, histórico e o estado da fila. |
 | `activeTab` | Saber se a aba aberta é do Instagram quando você clica no ícone. |
-| Content scripts em `https://www.instagram.com/*` | Identificar as mídias da página. Não há acesso a nenhum outro site. |
+| Content scripts em `https://www.instagram.com/*` | Identificar as mídias da página e mostrar o botão de download sobre elas. Não há acesso a nenhum outro site. |
 
 ## Uso responsável
 

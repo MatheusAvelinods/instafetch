@@ -11,7 +11,9 @@ Extensão para Google Chrome (Manifest V3) que identifica, seleciona e baixa ima
 
 - **Identificação de mídias:** imagens e vídeos da página aberta, incluindo todos os itens de carrosséis, sempre na maior resolução disponível, sem duplicatas.
 - **Prévia:** miniaturas com tipo, resolução e tamanho estimado.
-- **Download individual:** botão em cada miniatura.
+- **Botão na própria página (novo na 1.1):** um botão ⬇ aparece no canto de cada foto ou vídeo do Instagram, no feed, no perfil, em reels e na publicação aberta. Em carrosséis, só o slide visível tem botão, e ele acompanha a troca de slide. Ao passar o mouse, o botão mostra o que será baixado (ex.: “Baixar foto · 1080×1350 · item 2”). Ele baixa sempre a maior resolução conhecida, mesmo quando a tela mostra uma miniatura. Na grade do perfil, a capa de um reel baixa o vídeo. O botão também mostra o progresso, a conclusão ou o erro. Pode ser desligado em Configurações.
+- **Filtro de resolução (novo na 1.1):** *Qualquer*, *≥ 320 px*, *≥ 640 px* ou *≥ 1080 px (HD)*, considerando o maior lado da mídia. Esconde miniaturas e imagens pequenas, informa quantas foram ocultadas e fica salvo para as próximas vezes. “Selecionar todas” respeita o filtro.
+- **Download individual:** botão em cada miniatura do popup.
 - **Download em lote:** selecionar todas, limpar seleção e baixar as selecionadas.
 - **Organização:** `Downloads/InstaFetch/<perfil>_<publicação>/<perfil>_<publicação>_01.jpg` (dá para desativar as subpastas).
 - **Fila:** estados *aguardando, baixando, concluído, falhou, cancelado*, progresso por item e do lote, limite de 1 a 5 downloads simultâneos (padrão: 3).
@@ -45,9 +47,13 @@ Depois carregue a pasta `dist/` em `chrome://extensions` como no passo 4 acima. 
 
 ## Como usar
 
+**Mais rápido:** passe o mouse sobre uma foto ou vídeo no Instagram e clique no botão ⬇ do canto superior esquerdo.
+
+**Pelo popup (para lotes):**
+
 1. Abra uma publicação, reel ou perfil em `instagram.com`.
 2. Clique no ícone do InstaFetch.
-3. Use os filtros **Todas / Imagens / Vídeos** se quiser.
+3. Use os filtros **Todas / Imagens / Vídeos** e **Resolução mínima** (ex.: ≥ 1080 px para pegar só arquivos grandes).
 4. Clique no ícone ⬇ de uma mídia para baixá-la, ou marque várias e clique em **Baixar selecionadas**.
 5. Acompanhe na aba **Fila**; os arquivos concluídos aparecem no **Histórico**.
 
@@ -74,7 +80,8 @@ O service worker mantém a fila com concorrência limitada, usa `chrome.download
 ```
 src/
   background/   service worker: fila, mensagens, progresso, persistência
-  content/      detecção de mídias (DOM, JSON embutido, page-hook no contexto da página)
+  content/      detecção de mídias (DOM, JSON embutido, page-hook no contexto da página),
+                botões sobre as mídias (overlay.ts) e escolha da melhor versão (resolve.ts)
   downloads/    fila de downloads (lógica pura e testável) e adaptador do chrome.downloads
   popup/        interface (HTML, CSS e TypeScript sem framework)
   shared/       tipos, mensagens, nomes de arquivo, validação de URL, mensagens de erro
@@ -106,6 +113,7 @@ Para o teste de integração também validar downloads concluídos, aponte o CDN
 - **Carrosséis no feed:** os itens aparecem conforme o Instagram os carrega. Abrir a publicação garante a lista completa.
 - **Links expiram:** os endereços do CDN são assinados e temporários. Recarregue a página antes de repetir downloads antigos.
 - **Conteúdo privado:** a extensão só vê o que sua conta já pode ver; não contorna contas privadas, login ou outras proteções, e não deve ser usada para isso.
+- **Botão sobre vídeos:** quando o vídeo é transmitido em partes e a publicação tem mais de um vídeo sem capa correspondente, o botão avisa que o vídeo está indisponível. Use o popup na página da publicação.
 - **Stories e destaques** não são tratados de forma específica nesta versão.
 
 ## Privacidade

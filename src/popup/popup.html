@@ -36,6 +36,13 @@
           <button class="ghost small" id="refresh" title="Procurar mídias novamente">Atualizar</button>
         </div>
         <div class="toolbar sub">
+          <label class="resolution" for="min-resolution">
+            <span>Resolução mínima</span>
+            <select id="min-resolution" title="Esconde miniaturas e imagens pequenas (considera o maior lado)"></select>
+          </label>
+          <span id="hidden-info" class="muted small-text"></span>
+        </div>
+        <div class="toolbar sub">
           <span id="selection-info" class="muted">Nenhuma selecionada</span>
           <span class="spacer"></span>
           <button class="link" id="select-all">Selecionar todas</button>
@@ -85,6 +92,13 @@
               <option value="4">4</option>
               <option value="5">5</option>
             </select>
+          </label>
+          <label class="field">
+            <span>
+              <strong>Botão de download nas mídias</strong>
+              <small>Mostra um botão no canto de cada foto ou vídeo do Instagram, inclusive no slide atual de carrosséis.</small>
+            </span>
+            <input type="checkbox" id="show-overlay" class="switch" />
           </label>
           <label class="field">
             <span>

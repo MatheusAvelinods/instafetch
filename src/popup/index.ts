@@ -1,6 +1,7 @@
 import type { BackgroundRequest, BackgroundState, ContentRequest, MediaResponse, StateBroadcast } from "../shared/messages";
-import type { DownloadJob, HistoryEntry, MediaItem, MediaType } from "../shared/types";
-import { DEFAULT_SETTINGS } from "../shared/types";
+import type { DownloadJob, HistoryEntry, MediaItem } from "../shared/types";
+import { DEFAULT_SETTINGS, RESOLUTION_OPTIONS } from "../shared/types";
+import { applyFilters, RESOLUTION_LABELS, type TypeFilter } from "./filters";
 import { h, icon, ICONS, thumbnail } from "./dom";
 import {
   basename,
@@ -14,7 +15,6 @@ import {
 } from "./format";
 
 type Tab = "media" | "queue" | "history" | "settings";
-type Filter = "all" | MediaType;
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -42,6 +42,9 @@ const ui = {
   clearHistory: $<HTMLButtonElement>("clear-history"),
   concurrency: $<HTMLSelectElement>("concurrency"),
   subfolders: $<HTMLInputElement>("subfolders"),
+  showOverlay: $<HTMLInputElement>("show-overlay"),
+  minResolution: $<HTMLSelectElement>("min-resolution"),
+  hiddenInfo: $("hidden-info"),
   footer: $("footer"),
   downloadSelected: $<HTMLButtonElement>("download-selected"),
   overall: $("overall-progress"),
@@ -52,7 +55,7 @@ const ui = {
 
 const view = {
   tab: "media" as Tab,
-  filter: "all" as Filter,
+  filter: "all" as TypeFilter,
   media: [] as MediaItem[],
   selected: new Set<string>(),
   bg: { jobs: [], history: [], settings: DEFAULT_SETTINGS } as BackgroundState,
@@ -131,8 +134,12 @@ async function loadMedia(): Promise<void> {
 
 // ---------- Mídias ----------
 
+function filtered() {
+  return applyFilters(view.media, view.filter, view.bg.settings.minResolution);
+}
+
 function visibleMedia(): MediaItem[] {
-  return view.filter === "all" ? view.media : view.media.filter((m) => m.type === view.filter);
+  return filtered().visible;
 }
 
 /** Último job de cada mídia, para mostrar o estado sobre a miniatura. */
@@ -148,15 +155,30 @@ function latestJobByKey(): Map<string, DownloadJob> {
 function renderMedia(): void {
   ui.mediaMessage.hidden = true;
   const counts = { all: view.media.length, image: 0, video: 0 };
-  for (const m of view.media) counts[m.type]++;
+  // Contadores consideram o filtro de resolução atual.
+  const matching = applyFilters(view.media, "all", view.bg.settings.minResolution).visible;
+  counts.all = matching.length;
+  for (const m of matching) counts[m.type]++;
   $("count-all").textContent = String(counts.all);
   $("count-image").textContent = String(counts.image);
   $("count-video").textContent = String(counts.video);
 
-  const items = visibleMedia();
+  const { visible: items, hiddenByResolution } = filtered();
   ui.grid.replaceChildren(...items.map(renderCard));
+  ui.hiddenInfo.textContent = hiddenByResolution
+    ? `${hiddenByResolution} ${hiddenByResolution === 1 ? "oculta" : "ocultas"} (menores)`
+    : "";
+  ui.minResolution.classList.toggle("active", view.bg.settings.minResolution > 0);
   if (view.media.length > 0 && items.length === 0) {
-    showMediaMessage("Nada neste filtro", view.filter === "video" ? "Nenhum vídeo encontrado." : "Nenhuma imagem encontrada.");
+    if (hiddenByResolution > 0) {
+      showMediaMessage("Nada nesta resolução", "Todas as mídias encontradas são menores que o filtro escolhido.");
+      ui.mediaMessage.append(
+        h("br"),
+        h("button", { class: "link", onclick: () => setMinResolution(0) }, "Mostrar todas as resoluções"),
+      );
+    } else {
+      showMediaMessage("Nada neste filtro", view.filter === "video" ? "Nenhum vídeo encontrado." : "Nenhuma imagem encontrada.");
+    }
   }
   updateCardStatuses();
   renderSelection();
@@ -417,13 +439,30 @@ function renderOverall(): void {
   ui.overallText.textContent = parts.join(" · ");
 }
 
+function setMinResolution(value: number): void {
+  // Atualiza na hora; a configuração salva volta pelo broadcast do service worker.
+  view.bg = { ...view.bg, settings: { ...view.bg.settings, minResolution: value } };
+  ui.minResolution.value = String(value);
+  // Mídias que saíram do filtro deixam de estar selecionadas.
+  const visible = new Set(visibleMedia().map((m) => m.key));
+  for (const key of view.selected) if (!visible.has(key)) view.selected.delete(key);
+  renderMedia();
+  void send({ type: "SET_SETTINGS", settings: { minResolution: value } });
+}
+
 function renderBackground(): void {
+  const resolutionChanged = Number(ui.minResolution.value) !== view.bg.settings.minResolution;
   updateCardStatuses();
   renderQueue();
   renderHistory();
   renderOverall();
   ui.concurrency.value = String(view.bg.settings.concurrency);
   ui.subfolders.checked = view.bg.settings.useSubfolders;
+  ui.showOverlay.checked = view.bg.settings.showOverlay;
+  if (resolutionChanged) {
+    ui.minResolution.value = String(view.bg.settings.minResolution);
+    renderMedia();
+  }
 }
 
 function switchTab(tab: Tab): void {
@@ -440,7 +479,7 @@ function switchTab(tab: Tab): void {
 ui.tabs.forEach((t) => t.addEventListener("click", () => switchTab(t.dataset.tab as Tab)));
 ui.chips.forEach((chip) =>
   chip.addEventListener("click", () => {
-    view.filter = chip.dataset.filter as Filter;
+    view.filter = chip.dataset.filter as TypeFilter;
     ui.chips.forEach((c) => c.setAttribute("aria-pressed", String(c === chip)));
     renderMedia();
   }),
@@ -474,6 +513,14 @@ ui.concurrency.addEventListener("change", () =>
 );
 ui.subfolders.addEventListener("change", () =>
   void send({ type: "SET_SETTINGS", settings: { useSubfolders: ui.subfolders.checked } }),
+);
+
+ui.minResolution.replaceChildren(
+  ...RESOLUTION_OPTIONS.map((value) => h("option", { value: String(value) }, RESOLUTION_LABELS[value])),
+);
+ui.minResolution.addEventListener("change", () => setMinResolution(Number(ui.minResolution.value)));
+ui.showOverlay.addEventListener("change", () =>
+  void send({ type: "SET_SETTINGS", settings: { showOverlay: ui.showOverlay.checked } }),
 );
 
 connect();

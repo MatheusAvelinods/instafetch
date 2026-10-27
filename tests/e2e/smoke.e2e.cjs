@@ -28,14 +28,28 @@ const embedded = {
           image_versions2: { candidates: [{ url: cdn("c", 640), width: 640, height: 1136 }] },
           video_versions: [{ url: "https://scontent.cdninstagram.com/o1/v/c.mp4", width: 720, height: 1280 }],
         },
+        { image_versions2: { candidates: [{ url: cdn("d", 320), width: 320, height: 320 }] } },
       ],
     }],
   }],
 };
 const HTML = `<!doctype html><html><head><title>Instagram</title>
-<script type="application/json">${JSON.stringify(embedded)}</script></head>
+<script type="application/json">${JSON.stringify(embedded)}</script>
+<style>
+  body { margin: 0; font-family: sans-serif; }
+  .carousel { width: 400px; height: 400px; overflow: hidden; margin: 40px; position: relative; }
+  .carousel ul { display: flex; margin: 0; padding: 0; list-style: none; transition: transform .3s; }
+  .carousel li, .carousel img, .carousel video { width: 400px; height: 400px; flex-shrink: 0; display: block; object-fit: cover; }
+</style></head>
 <body><main><article><a href="/p/Ctest123/">post</a>
-<img alt="Foto" width="400" height="400" src="${cdn("a", 640)}"></article></main></body></html>`;
+<div class="carousel"><ul id="track">
+  <li><img alt="Foto" src="${cdn("a", 320)}"></li>
+  <li><img alt="Foto" src="${cdn("b", 320)}"></li>
+  <li><video poster="${cdn("c", 320)}"></video></li>
+  <li><img alt="Foto" src="${cdn("d", 150)}"></li>
+</ul></div>
+<button id="next" onclick="window.slide=(window.slide||0)+1;document.getElementById('track').style.transform='translateX(' + (-400*window.slide) + 'px)'">próximo</button>
+</article></main></body></html>`;
 
 function assert(cond, msg) {
   if (!cond) throw new Error("FALHOU: " + msg);
@@ -76,12 +90,60 @@ function assert(cond, msg) {
     });
     assert(typeof tabId === "number", "aba do Instagram encontrada");
 
+    // ---------- Botão sobre a mídia ----------
+    await page.setViewportSize({ width: 900, height: 700 });
+    const visibleButtons = () =>
+      page.evaluate(() => document.querySelector("instafetch-overlay").shadowRoot.querySelectorAll(".wrap:not([hidden])").length);
+    const overlayLabel = async () => {
+      await page.mouse.move(0, 0);
+      await page.mouse.move(65, 83); // sobre o botão do slide visível
+      await page.waitForTimeout(150);
+      return page.evaluate(() => {
+        const wrap = document.querySelector("instafetch-overlay").shadowRoot.querySelector(".wrap:not([hidden])");
+        return wrap.querySelector(".label").textContent;
+      });
+    };
+    await page.waitForFunction(() => document.querySelector("instafetch-overlay"));
+    await page.waitForTimeout(300);
+    assert((await visibleButtons()) === 1, "carrossel: só o slide visível tem botão");
+    const label1 = await overlayLabel();
+    assert(label1 === "Baixar foto · 1080×1350 · item 1", `rótulo mostra a versão em alta resolução (${label1})`);
+
+    await page.click("#next");
+    await page.waitForTimeout(700);
+    assert((await visibleButtons()) === 1, "botão acompanha a troca de slide");
+    const label2 = await overlayLabel();
+    assert(label2 === "Baixar foto · 1080×1080 · item 2", `slide 2 identificado (${label2})`);
+    await page.screenshot({ path: path.join(process.env.SHOT_DIR || os.tmpdir(), "page-overlay.png"), clip: { x: 0, y: 0, width: 500, height: 520 } });
+
+    const btn = await page.evaluate(() => {
+      const r = document.querySelector("instafetch-overlay").shadowRoot.querySelector(".wrap:not([hidden]) button").getBoundingClientRect();
+      return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+    });
+    await page.mouse.click(btn.x, btn.y);
+    await page.waitForFunction(
+      () => /done|error/.test(document.querySelector("instafetch-overlay").shadowRoot.querySelector(".wrap:not([hidden]) button").dataset.state),
+      null,
+      { timeout: 20000 },
+    );
+    const overlayState = await page.evaluate(() => {
+      const wrap = document.querySelector("instafetch-overlay").shadowRoot.querySelector(".wrap:not([hidden])");
+      return `${wrap.querySelector("button").dataset.state} | ${wrap.querySelector(".label").textContent}`;
+    });
+    console.log("   botão após clique:", overlayState);
+    assert(process.env.CDN_MAP ? overlayState.startsWith("done") : true, "download pelo botão concluído");
+
+    await page.click("#next");
+    await page.waitForTimeout(700);
+    const label3 = await overlayLabel();
+    assert(label3 === "Baixar vídeo · 720×1280 · item 3", `vídeo do carrossel encontrado pela capa (${label3})`);
+
     const popup = await context.newPage();
     await popup.goto(`chrome-extension://${extensionId}/popup.html?tabId=${tabId}`);
     await popup.waitForSelector(".card");
     const cards = await popup.$$eval(".card", (els) => els.map((e) => e.querySelector(".meta")?.textContent));
     console.log("   cards:", cards);
-    assert(cards.length === 3, "3 mídias do carrossel detectadas sem duplicata da imagem do DOM");
+    assert(cards.length === 4, "4 mídias do carrossel detectadas sem duplicatas das imagens do DOM");
     const badges = await popup.$$eval(".type-badge", (els) => els.map((e) => e.textContent));
     assert(badges[2] === "Vídeo", "vídeo do carrossel identificado");
     assert(cards[0].startsWith("1080×1350"), "resolução exibida");
@@ -90,8 +152,17 @@ function assert(cond, msg) {
     assert((await popup.$$(".card")).length === 1, "filtro de vídeos");
     await popup.click('.chip[data-filter="all"]');
 
+    // ---------- Filtro de resolução ----------
+    await popup.selectOption("#min-resolution", "1080");
+    const filtered = await popup.$$eval(".card .meta", (els) => els.map((e) => e.textContent));
+    assert(filtered.length === 3 && !filtered.some((t) => t.startsWith("320×320")), "filtro ≥1080 esconde a imagem pequena");
+    assert((await popup.textContent("#hidden-info")) === "1 oculta (menores)", "informa quantas foram ocultadas");
+    await popup.reload();
+    await popup.waitForSelector(".card");
+    assert((await popup.inputValue("#min-resolution")) === "1080" && (await popup.$$(".card")).length === 3, "filtro de resolução é lembrado");
+
     await popup.click("#select-all");
-    assert((await popup.textContent("#selection-info")) === "3 selecionadas", "selecionar todas");
+    assert((await popup.textContent("#selection-info")) === "3 selecionadas", "selecionar todas respeita o filtro");
     await popup.click("#clear-selection");
     assert((await popup.textContent("#selection-info")) === "Nenhuma selecionada", "limpar seleção");
 
@@ -103,7 +174,7 @@ function assert(cond, msg) {
     await popup.waitForFunction(
       () => {
         const statuses = [...document.querySelectorAll("#queue-list .status")].map((s) => s.textContent);
-        return statuses.length === 3 && statuses.every((s) => ["Concluído", "Falhou"].includes(s));
+        return statuses.length >= 3 && statuses.every((s) => ["Concluído", "Falhou"].includes(s));
       },
       null,
       { timeout: 30000 },

@@ -52,11 +52,20 @@ export interface Settings {
   concurrency: number;
   /** Organizar arquivos em InstaFetch/<publicação>/. */
   useSubfolders: boolean;
+  /** Mostrar o botão de download no canto das mídias do Instagram. */
+  showOverlay: boolean;
+  /** Filtro do popup: maior lado mínimo, em pixels (0 = qualquer resolução). */
+  minResolution: number;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   concurrency: 3,
   useSubfolders: true,
+  showOverlay: true,
+  minResolution: 0,
 };
+
+/** Opções do filtro de resolução (maior lado da mídia, em pixels). */
+export const RESOLUTION_OPTIONS = [0, 320, 640, 1080] as const;
 
 export const MAX_CONCURRENCY = 5;

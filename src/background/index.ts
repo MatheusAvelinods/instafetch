@@ -6,7 +6,14 @@ import { DownloadQueue, type DownloadChange } from "../downloads/queue";
 import { chromeDownloadAdapter } from "../downloads/chrome-adapter";
 import { clearHistory, loadHistory, prependEntry, saveHistory, toHistoryEntry } from "../storage/history";
 import { loadSettings, saveSettings } from "../storage/settings";
-import type { BackgroundRequest, BackgroundState, StateBroadcast } from "../shared/messages";
+import {
+  PAGE_ALLOWED_REQUESTS,
+  type BackgroundRequest,
+  type BackgroundState,
+  type EnqueueResponse,
+  type JobStatusSummary,
+  type StateBroadcast,
+} from "../shared/messages";
 import type { DownloadJob, HistoryEntry, Settings } from "../shared/types";
 import { DEFAULT_SETTINGS } from "../shared/types";
 import { isAllowedMediaUrl } from "../shared/url";
@@ -118,7 +125,27 @@ async function handle(request: BackgroundRequest): Promise<unknown> {
     case "ENQUEUE": {
       // Nunca baixa endereços fora dos CDNs do Instagram, mesmo que a lista venha adulterada.
       const items = request.items.filter((item) => item.unavailableReason || isAllowedMediaUrl(item.url));
-      return { added: queue.enqueue(items).length };
+      const added = queue.enqueue(items).length;
+      const response: EnqueueResponse = {
+        ok: true,
+        added,
+        jobIds: request.items.map((item) => queue.latestJobForKey(item.key)?.id),
+      };
+      return response;
+    }
+    case "JOB_STATUS": {
+      const wanted = new Set(request.jobIds);
+      return queue
+        .list()
+        .filter((job) => wanted.has(job.id))
+        .map(
+          (job): JobStatusSummary => ({
+            id: job.id,
+            status: job.status,
+            error: job.error,
+            percent: job.totalBytes ? Math.round(((job.bytesReceived ?? 0) / job.totalBytes) * 100) : undefined,
+          }),
+        );
     }
     case "CANCEL":
       queue.cancel(request.jobId);
@@ -161,8 +188,11 @@ async function handle(request: BackgroundRequest): Promise<unknown> {
 }
 
 chrome.runtime.onMessage.addListener((request: BackgroundRequest, sender, sendResponse) => {
-  // Só aceita comandos das páginas da própria extensão (popup), nunca de content scripts.
-  if (sender.id !== chrome.runtime.id || !sender.url?.startsWith(chrome.runtime.getURL(""))) return false;
+  // Popup: todos os comandos. Content script do Instagram: só adicionar à fila e consultar estado.
+  if (sender.id !== chrome.runtime.id) return false;
+  const fromPopup = !!sender.url?.startsWith(chrome.runtime.getURL(""));
+  const fromInstagram = !!sender.tab && /^https:\/\/www\.instagram\.com\//.test(sender.url ?? "");
+  if (!fromPopup && !(fromInstagram && PAGE_ALLOWED_REQUESTS.has(request.type))) return false;
   handle(request).then(sendResponse, (error: unknown) =>
     sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) }),
   );

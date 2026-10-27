@@ -41,6 +41,10 @@ export class MediaStore {
     }
   }
 
+  get(key: string): MediaItem | undefined {
+    return this.items.get(key);
+  }
+
   clear(): void {
     this.items.clear();
   }

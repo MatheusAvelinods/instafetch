@@ -161,6 +161,14 @@ export class DownloadQueue {
     this.pump();
   }
 
+  /** Job mais recente de uma mídia (para acompanhar o botão sobre a mídia). */
+  latestJobForKey(key: string): DownloadJob | undefined {
+    for (let i = this.jobs.length - 1; i >= 0; i--) {
+      if (this.jobs[i].media.key === key) return { ...this.jobs[i] };
+    }
+    return undefined;
+  }
+
   /** Esquece eventos de downloads que não pertencem à fila. */
   isTracked(downloadId: number): boolean {
     return this.jobs.some((j) => j.downloadId === downloadId);

@@ -29,7 +29,7 @@ function bestImageUrl(img: HTMLImageElement): { url: string; width?: number } {
 }
 
 /** Procura o link da publicação mais próximo do elemento. */
-function postContext(el: Element, doc: Document): string | undefined {
+export function postContext(el: Element, doc: Document): string | undefined {
   const container = el.closest("article, [role='dialog'], main") ?? doc.body;
   const link = container?.querySelector<HTMLAnchorElement>("a[href*='/p/'], a[href*='/reel/'], a[href*='/tv/']");
   const fromLink = link ? shortcodeFromPath(new URL(link.href, doc.baseURI).pathname) : undefined;
@@ -43,60 +43,75 @@ function isLargeEnough(el: HTMLImageElement | HTMLVideoElement): boolean {
   return Math.max(rect.width, rect.height) >= MIN_SIDE || natural >= MIN_SIDE;
 }
 
+/** Imagem ou vídeo grande o bastante para ser conteúdo (e não avatar ou ícone). */
+export function isCandidate(el: Element): el is HTMLImageElement | HTMLVideoElement {
+  if (el instanceof HTMLImageElement) return !AVATAR_ALT.test(el.alt) && isLargeEnough(el);
+  if (el instanceof HTMLVideoElement) return isLargeEnough(el);
+  return false;
+}
+
+export function mediaFromImage(img: HTMLImageElement, doc: Document = document): MediaItem | undefined {
+  const { url, width } = bestImageUrl(img);
+  if (!isAllowedMediaUrl(url)) return undefined;
+  const ratio = img.naturalWidth && img.naturalHeight ? img.naturalHeight / img.naturalWidth : undefined;
+  return {
+    key: mediaKey(url),
+    type: "image",
+    url,
+    thumbnailUrl: img.currentSrc || img.src,
+    width: width ?? (img.naturalWidth || undefined),
+    height: width && ratio ? Math.round(width * ratio) : img.naturalHeight || undefined,
+    shortcode: postContext(img, doc),
+    source: "dom",
+  };
+}
+
+export function videoSources(video: HTMLVideoElement): string[] {
+  return [video.currentSrc, video.src, ...[...video.querySelectorAll("source")].map((s) => s.src)].filter(Boolean);
+}
+
+export function mediaFromVideo(video: HTMLVideoElement, doc: Document = document): MediaItem | undefined {
+  const sources = videoSources(video);
+  const direct = sources.find(isAllowedMediaUrl);
+  const poster = video.poster && isAllowedMediaUrl(video.poster) ? video.poster : undefined;
+  const shortcode = postContext(video, doc);
+
+  if (direct) {
+    return {
+      key: mediaKey(direct),
+      type: "video",
+      url: direct,
+      thumbnailUrl: poster,
+      width: video.videoWidth || undefined,
+      height: video.videoHeight || undefined,
+      shortcode,
+      source: "dom",
+    };
+  }
+  if (sources.some((s) => s.startsWith("blob:"))) {
+    return {
+      key: `blob:${shortcode ?? sources[0]}`,
+      type: "video",
+      url: sources[0],
+      thumbnailUrl: poster,
+      shortcode,
+      source: "dom",
+      unavailableReason: STREAMING_REASON,
+    };
+  }
+  return undefined;
+}
+
+export const STREAMING_REASON =
+  "Este vídeo é transmitido em partes. Abra a publicação diretamente (ou recarregue a página) para a extensão obter o link do arquivo.";
+
 /** Varre imagens e vídeos visíveis na página. */
 export function scanDom(doc: Document = document): MediaItem[] {
   const out: MediaItem[] = [];
-
-  for (const img of doc.querySelectorAll<HTMLImageElement>("img")) {
-    if (AVATAR_ALT.test(img.alt) || !isLargeEnough(img)) continue;
-    const { url, width } = bestImageUrl(img);
-    if (!isAllowedMediaUrl(url)) continue;
-    const ratio = img.naturalWidth && img.naturalHeight ? img.naturalHeight / img.naturalWidth : undefined;
-    out.push({
-      key: mediaKey(url),
-      type: "image",
-      url,
-      thumbnailUrl: img.currentSrc || img.src,
-      width: width ?? (img.naturalWidth || undefined),
-      height: width && ratio ? Math.round(width * ratio) : img.naturalHeight || undefined,
-      shortcode: postContext(img, doc),
-      source: "dom",
-    });
+  for (const el of doc.querySelectorAll("img, video")) {
+    if (!isCandidate(el)) continue;
+    const item = el instanceof HTMLImageElement ? mediaFromImage(el, doc) : mediaFromVideo(el, doc);
+    if (item) out.push(item);
   }
-
-  for (const video of doc.querySelectorAll<HTMLVideoElement>("video")) {
-    if (!isLargeEnough(video)) continue;
-    const sources = [video.currentSrc, video.src, ...[...video.querySelectorAll("source")].map((s) => s.src)].filter(
-      Boolean,
-    );
-    const direct = sources.find(isAllowedMediaUrl);
-    const poster = video.poster && isAllowedMediaUrl(video.poster) ? video.poster : undefined;
-    const shortcode = postContext(video, doc);
-
-    if (direct) {
-      out.push({
-        key: mediaKey(direct),
-        type: "video",
-        url: direct,
-        thumbnailUrl: poster,
-        width: video.videoWidth || undefined,
-        height: video.videoHeight || undefined,
-        shortcode,
-        source: "dom",
-      });
-    } else if (sources.some((s) => s.startsWith("blob:"))) {
-      out.push({
-        key: `blob:${shortcode ?? sources[0]}`,
-        type: "video",
-        url: sources[0],
-        thumbnailUrl: poster,
-        shortcode,
-        source: "dom",
-        unavailableReason:
-          "Este vídeo é transmitido em partes. Abra a publicação diretamente (ou recarregue a página) para a extensão obter o link do arquivo.",
-      });
-    }
-  }
-
   return out;
 }
