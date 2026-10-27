@@ -1,0 +1,24 @@
+{
+  "name": "instafetch",
+  "version": "1.0.0",
+  "description": "Extensão Chrome (Manifest V3) para identificar, selecionar e baixar imagens e vídeos do Instagram.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "watch": "node scripts/build.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "zip": "npm run build && cd dist && zip -qr ../instafetch.zip .",
+    "test:e2e": "npm run build && node tests/e2e/smoke.e2e.cjs"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@types/chrome": "^0.3.7",
+    "esbuild": "^0.28.2",
+    "jsdom": "^29.1.1",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  }
+}

@@ -1,0 +1,62 @@
+export type MediaType = "image" | "video";
+
+/** Origem da detecção: dados JSON recebidos pela página ou elementos do DOM. */
+export type MediaSource = "network" | "embedded" | "dom";
+
+export interface MediaItem {
+  /** Chave estável usada para eliminar duplicatas (caminho do arquivo no CDN). */
+  key: string;
+  type: MediaType;
+  url: string;
+  thumbnailUrl?: string;
+  width?: number;
+  height?: number;
+  /** Código curto da publicação (ex.: /p/<shortcode>/). */
+  shortcode?: string;
+  owner?: string;
+  /** Posição dentro de um carrossel (1-based). */
+  index?: number;
+  source: MediaSource;
+  /** Preenchido quando a mídia foi identificada, mas não pode ser baixada. */
+  unavailableReason?: string;
+}
+
+export type JobStatus = "waiting" | "downloading" | "completed" | "failed" | "cancelled";
+
+export interface DownloadJob {
+  id: string;
+  batchId: string;
+  media: MediaItem;
+  filename: string;
+  status: JobStatus;
+  downloadId?: number;
+  bytesReceived?: number;
+  totalBytes?: number;
+  error?: string;
+  attempts: number;
+  createdAt: number;
+  finishedAt?: number;
+}
+
+export interface HistoryEntry {
+  /** Id do download no Chrome, usado para mostrar o arquivo na pasta. */
+  downloadId: number;
+  filename: string;
+  type: MediaType;
+  shortcode?: string;
+  finishedAt: number;
+}
+
+export interface Settings {
+  /** Quantidade máxima de downloads simultâneos (1–5). */
+  concurrency: number;
+  /** Organizar arquivos em InstaFetch/<publicação>/. */
+  useSubfolders: boolean;
+}
+
+export const DEFAULT_SETTINGS: Settings = {
+  concurrency: 3,
+  useSubfolders: true,
+};
+
+export const MAX_CONCURRENCY = 5;
